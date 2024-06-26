@@ -1,8 +1,17 @@
 "use client";
-import {createWalletClient, custom, encodeFunctionData, formatEther, parseAbi} from "viem";
-import {arbitrumSepolia, SendUserOperationParameters, WalletClientSigner} from "@alchemy/aa-core";
+import {Chain, createWalletClient, custom, CustomTransport, encodeFunctionData, formatEther, parseAbi} from "viem";
+import {arbitrumSepolia, SendUserOperationParameters, UserOperationRequest, WalletClientSigner} from "@alchemy/aa-core";
 import {useEffect, useState} from "react";
 import { createMultisigAccountAlchemyClient } from "@alchemy/aa-alchemy";
+import type {ProposeUserOperationResult} from "@alchemy/aa-accounts/dist/types/src/msca/plugins/multisig/types";
+import {Signature} from "@alchemy/aa-accounts/src/msca/plugins/multisig/types";
+import type {AlchemySmartAccountClient} from "@alchemy/aa-alchemy/src/client/smartAccountClient";
+import type {
+    AccountLoupeActions,
+    MultisigModularAccount,
+    MultisigPluginActions, MultisigUserOperationContext,
+    PluginManagerActions
+} from "@alchemy/aa-accounts";
 const chain = arbitrumSepolia;
 
 export default function Home() {
@@ -10,6 +19,8 @@ export default function Home() {
     const [eoaSigner, setEoaSigner] = useState<WalletClientSigner>(null);
     const [aaAddress, setAaAddress] = useState<string>(null);
     const [multisigAccountClient, setMultisigAccountClient] = useState(null);
+    const [userOperationRequest, setUserOperationRequest] = useState<UserOperationRequest>(null);
+    const [signatureOps, setSignatureOps] = useState<Signature[]>([]);
     const bicAddress = '0xe8afce87993bd475faf2aea62e0b008dc27ab81a'
     const toAddress = '0xeaBcd21B75349c59a4177E10ed17FBf2955fE697'
     const amount = 1000000000000000000n
@@ -63,20 +74,51 @@ export default function Home() {
     }
 
     const proposeOperation = async () => {
+        // const operationParameters = {
+        //     target: bicAddress,
+        //     value: 0,
+        //     data: encodeFunctionData({
+        //         abi: parseAbi([
+        //             'function transfer(address to, uint256 amount)'
+        //         ]),
+        //         functionName: 'transfer',
+        //         args: [toAddress, amount]
+        //     }),
+        // }
         const operationParameters = {
-            target: bicAddress,
+            target: '0xeaBcd21B75349c59a4177E10ed17FBf2955fE697',
             value: 0,
-            data: encodeFunctionData({
-                abi: parseAbi([
-                    'function transfer(address to, uint256 amount)'
-                ]),
-                functionName: 'transfer',
-                args: [toAddress, amount]
-            }),
+            data: '0x'
         }
         console.log('operationParameters: ', operationParameters)
-        const operation = await multisigAccountClient.proposeUserOperation({ou: operationParameters});
+        const operation = await multisigAccountClient.proposeUserOperation({uo: operationParameters});
         console.log('operation: ', operation)
+        setUserOperationRequest(operation.request)
+        setSignatureOps([operation.signatureObj])
+    }
+
+    const signProposeOperation = async () => {
+        const signedOperation = await multisigAccountClient.signMultisigUserOperation({
+            userOperationRequest: userOperationRequest,
+            signatures: signatureOps
+        })
+        console.log('signedOperation: ', signedOperation)
+        const userOp = userOperationRequest
+        userOp.signature = signedOperation.aggregatedSignature
+        setSignatureOps([...signatureOps, signedOperation.signatureObj])
+        setUserOperationRequest(userOp)
+    }
+
+    const sendOperation = async () => {
+        // const operationParameters: SendUserOperationParameters = {
+        //     userOperationRequest: userOperationRequest,
+        //     signatures: signatureOps
+        // }
+        // console.log('operationParameters: ', operationParameters)
+        console.log('userOperationRequest: ', userOperationRequest)
+        const uo = await multisigAccountClient.sendRawUserOperation(userOperationRequest, '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789')
+        const txHash = await multisigAccountClient.waitForUserOperationTransaction(uo);
+        console.log(txHash);
     }
 
     useEffect(() => {
@@ -95,6 +137,8 @@ export default function Home() {
                   <p>Connected with address: {address}</p>
                   <button onClick={() => logoutWallet()}>Logout wallet</button>
                     <button onClick={() => proposeOperation()}>Propose Operation</button>
+                  <button onClick={() => signProposeOperation()}>Sign Operation</button>
+                  <button onClick={() => sendOperation()}>Send Operation</button>
               </div>
           }
 
